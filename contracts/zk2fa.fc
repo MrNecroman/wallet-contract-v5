@@ -109,7 +109,7 @@ global slice ctx_wallet_address;
 
 (int) valid_time(int time) impure inline {
     ;; return
-    if (time == ctx_last_time) {
+    if (time <= ctx_last_time) {
         return false;
     }
     return (time < (now() * 1000 + 60000)) & (time > (now() * 1000 - 60000));
