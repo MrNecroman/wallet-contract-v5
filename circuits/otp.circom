@@ -18,6 +18,7 @@ template HashLeftRight() {
 template OtpMerkleTreeInclusionProof(n) {
     signal input time;
     signal input root;
+    signal input actions_hash;
     signal private input otp;
 
     signal private input path_elements[n];
@@ -57,6 +58,9 @@ template OtpMerkleTreeInclusionProof(n) {
         levelHashes[i + 1] <== hashers[i].hash;
     }
     root === levelHashes[n];
+
+    // optional safety constraint to make sure actions_hash cannot be changed
+    signal actionsHashSquare <== actions_hash * actions_hash;
 
 }
 

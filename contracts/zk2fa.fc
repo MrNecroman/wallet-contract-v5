@@ -68,14 +68,16 @@ global slice ctx_wallet_address;
     );
 }
 
-(int) check_otp_proof(int time, int root, slice otp_proof) impure inline {
+(int) check_otp_proof(int time, int root, int actions_hash, slice otp_proof) impure inline {
     try {
-        slice IC0 = "a8fce2adf12d72e669ea3907620ed993d02dbb554cb9d07a0501f8b520c14c77ba999dc95d6d4c48aee32936cf7b1fbc"s;
-        slice IC1 = "a6e8bfef42a1dcad425c57047b55bb02bfbf3fa61f783b0b967dbd106978d401294b42320f6b3ec19d231404fffc3181"s;
-        slice IC2 = "a0c004fdbb9fc6776cf3ea1fbaefe20ba3d0e6181d7e3703dc1deb53b8ff2e9c87510e13a1836610ede825086c5691f4"s;
+
+        slice IC0 = "acc23092c55cb665c59f7dc4cc80da95553f4e0f6b3b9ecda3bcc43a4773d151f208d2702c801d7012cf5343664816b8"s;
+        slice IC1 = "89f4af820c466eb1bae168f7198d453b2f185ae2e751b0377d96eb4c5535f9c50c9aec6194e7198ff4113b90022d1026"s;
+        slice IC2 = "b827213a0eb36dbac28a6eff07a11f9bd28bd148880b6cf01acde5a5ce0751a6c15be7396a2cdeb870174bb347d35407"s;
+        slice IC3 = "b053e86d8ca6fb71957e18a1cf50af7c212457ed34871a83fa6009bec012e93a8aefb4619c153138ffcb760d3f40802a"s;
 
         slice gamma2 = "93e02b6052719f607dacd3a088274f65596bd0d09920b61ab5da61bbdc7f5049334cf11213945d57e5ac7d055d042b7e024aa2b2f08f0a91260805272dc51051c6e47ad4fa403b02b4510b647ae3d1770bac0326a805bbefd48056c8c121bdb8"s;
-        slice delta2 = "a69cd66c681bffb2b6f124caba2d5d2fa5bddc3ad149716d2b50b63c2d356fb471b9671ff29042a15e4382068b9d5325111cb17047c092f3132fd9e7d27ce7521a8d92d1a107801794b7e499f46d61c62c690de73f5e6e54c8c46f722c11dc2e"s;
+        slice delta2 = "b28ab227231face1d9089b55d484f0b818aa343d2a88bb5983b2e9bc0ee90e4a17229610514ab0610e0a9feeb73097f0184a556f045869c7c8cd5c7919a184ddb83a2c78143e3f5999f1ff6b90ef4e6f2e0690e2ddaba7c26a88ac646a9289ef"s;
         slice alf1 = "86eb9de1fae7b540e09c26303cee8b99784835d37bf46f3fb1db25b7b063d9ab9aa866e79f7cc4eb209224c8465b9bde"s;
         slice beta2 = "9091cd3cdc8abaa367a61d5e094dc91ceec4a831f9c995e0b6d38cff4a9cf897a6bb7cc6d1fbb54068bbd8bb479e56d5010417ac1b215ac661897a156c587791a9cc20dffd3d60009696a749136c6b874f8f7a6c2e951843ef410ee953d0354c"s;
 
@@ -89,6 +91,7 @@ global slice ctx_wallet_address;
 
         vk_x = bls_g1_add(vk_x, bls_g1_mul(IC1, time));
         vk_x = bls_g1_add(vk_x, bls_g1_mul(IC2, root));
+        vk_x = bls_g1_add(vk_x, bls_g1_mul(IC3, actions_hash));
 
         slice neg_a = bls_g1_negate(A);
 
@@ -160,7 +163,13 @@ global slice ctx_wallet_address;
     int time = in_msg_body~load_uint(64); ;; in milliseconds
 
     throw_unless(33, valid_time(time));
-    int check_otp = check_otp_proof(time, ctx_root, in_msg_body~load_ref().begin_parse());
+    slice otp_proof = in_msg_body~load_ref().begin_parse();
+    cell remaining_payload = in_msg_body~load_ref();
+    int given_actions_hash = in_msg_body~load_uint(256);
+    int actions_hash = remaining_payload.begin_parse().slice_hash();
+    throw_unless(42, given_actions_hash == actions_hash);
+
+    int check_otp = check_otp_proof(time, ctx_root, actions_hash, otp_proof);
     throw_unless(34, check_otp);
     ctx_failed_attempts = 0;
     ctx_last_time = time;
@@ -171,13 +180,16 @@ global slice ctx_wallet_address;
     }
 
     if (op == op::change_public_key) {
-        ctx_public_key = in_msg_body~load_uint(256);
+        slice remaining_payload_slice = remaining_payload.begin_parse();
+        ctx_public_key = remaining_payload_slice~load_uint(256);
         save_data();
         return ();
     }
 
     if (op == op::refresh_otp) {
-        ctx_root = in_msg_body~load_uint(256);
+        slice remaining_payload_slice = remaining_payload.begin_parse();
+
+        ctx_root = remaining_payload_slice~load_uint(256);
         save_data();
         return ();
     }
@@ -192,7 +204,7 @@ global slice ctx_wallet_address;
                 .store_coins(20000000)
                 .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
                 .store_ref(
-                    in_msg_body~load_ref()
+                    remaining_payload
                 )
                 .end_cell(),
             0
@@ -203,7 +215,9 @@ global slice ctx_wallet_address;
     }
 
     if (op == op::send_msg) {
-        var coins = in_msg_body~load_coins();
+        slice remaining_payload_slice = remaining_payload.begin_parse();
+
+        var coins = remaining_payload_slice~load_coins();
         send_raw_message(
             begin_cell()
                 .store_uint(0x10, 6) ;; nobounce - int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddress -> 011000
@@ -211,7 +225,7 @@ global slice ctx_wallet_address;
                 .store_coins(coins)
                 .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
                 .store_ref(
-                    in_msg_body~load_ref()
+                    remaining_payload_slice~load_ref()
                 )
                 .end_cell(),
             0
@@ -220,8 +234,7 @@ global slice ctx_wallet_address;
         return ();
     }
     if (op == op::set_code) {
-        cell new_code = in_msg_body~load_ref();
-
+        cell new_code = remaining_payload;
         set_c3(new_code.begin_parse().bless());
         load_data();
         set_code(new_code);
@@ -264,10 +277,14 @@ global slice ctx_wallet_address;
     int time = cs~load_uint(64); ;; in milliseconds
     throw_unless(41, valid_time(time));
     slice proof_data = cs~load_ref().begin_parse();
+    cell remaining_payload = cs~load_ref();
+    int given_actions_hash = cs~load_uint(256);
+    int actions_hash = remaining_payload.begin_parse().slice_hash();
+    throw_unless(42, given_actions_hash == actions_hash);
     accept_message();
 
 
-    int check_otp = check_otp_proof(time, ctx_root, proof_data);
+    int check_otp = check_otp_proof(time, ctx_root, actions_hash, proof_data);
 
     if (check_otp == 0) {
         ;; otp proof is invalid
@@ -281,7 +298,8 @@ global slice ctx_wallet_address;
     ctx_nonce += 1;
 
     if (op == op::send_msg) {
-        var coins = cs~load_coins();
+        slice remaining_payload_slice = remaining_payload.begin_parse();
+        var coins = remaining_payload_slice~load_coins();
         send_raw_message(
             begin_cell()
                 .store_uint(0x10, 6) ;; nobounce - int_msg_info$0 ihr_disabled:Bool bounce:Bool bounced:Bool src:MsgAddress -> 011000
@@ -289,7 +307,7 @@ global slice ctx_wallet_address;
                 .store_coins(coins)
                 .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
                 .store_ref(
-                    cs~load_ref()
+                    remaining_payload_slice~load_ref()
                 )
                 .end_cell(),
             0
@@ -297,7 +315,8 @@ global slice ctx_wallet_address;
         save_data();
         return ();
     } elseif (op == op::refresh_otp) {
-        ctx_root = cs~load_uint(256);
+        slice remaining_payload_slice = remaining_payload.begin_parse();
+        ctx_root = remaining_payload_slice~load_uint(256);
         save_data();
         return ();
     } elseif (op == op::cancel_otp) {
@@ -309,7 +328,7 @@ global slice ctx_wallet_address;
                 .store_coins(20000000)
                 .store_uint(1, 1 + 4 + 4 + 64 + 32 + 1 + 1)
                 .store_ref(
-                    cs~load_ref()
+                    remaining_payload
                 )
                 .end_cell(),
             0

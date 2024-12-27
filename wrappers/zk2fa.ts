@@ -61,6 +61,7 @@ export class Zk2FA implements Contract {
             .storeUint(validUntil, 32)
             .storeUint(seqno, 32)
             .storeUint(otpProofData.timeMS, 64)
+            .storeUint(BigInt('0x' + actionlist.hash().toString('hex')), 256)
             .storeRef(
                 beginCell()
                     .storeRef(
@@ -90,12 +91,13 @@ export class Zk2FA implements Contract {
     ) {
         let B_x = otpProofData.proof.pi_b[0].map((num: string) => BigInt(num));
         let B_y = otpProofData.proof.pi_b[1].map((num: string) => BigInt(num));
+        let actions = beginCell().storeUint(newRoot, 256).endCell();
         return beginCell()
-            .storeUint(Opcodes.cancel_otp, 32)
+            .storeUint(Opcodes.refresh_otp, 32)
             .storeUint(validUntil, 32)
             .storeUint(seqno, 32)
             .storeUint(otpProofData.timeMS, 64)
-            .storeUint(newRoot, 256)
+            .storeUint(BigInt('0x' + actions.hash().toString('hex')), 256)
             .storeRef(
                 beginCell()
                     .storeRef(
@@ -110,6 +112,7 @@ export class Zk2FA implements Contract {
                         )
                     )
             )
+            .storeRef(actions)
             .endCell();
     }
 
@@ -125,12 +128,13 @@ export class Zk2FA implements Contract {
     ) {
         let B_x = otpProofData.proof.pi_b[0].map((num: string) => BigInt(num));
         let B_y = otpProofData.proof.pi_b[1].map((num: string) => BigInt(num));
+        let actions = beginCell().storeCoins(coins).storeRef(actionlist).endCell();
         return beginCell()
-            .storeUint(Opcodes.cancel_otp, 32)
+            .storeUint(Opcodes.send_msg, 32)
             .storeUint(validUntil, 32)
             .storeUint(seqno, 32)
             .storeUint(otpProofData.timeMS, 64)
-            .storeCoins(coins)
+            .storeUint(BigInt('0x' + actions.hash().toString('hex')), 256)
             .storeRef(
                 beginCell()
                     .storeRef(
@@ -145,16 +149,18 @@ export class Zk2FA implements Contract {
                         )
                     )
             )
-            .storeRef(actionlist)
+            .storeRef(actions)
             .endCell();
     }
 
     static disable_emergency_with_otp_body(otpProofData: { timeMS: number; proof: any }) {
         let B_x = otpProofData.proof.pi_b[0].map((num: string) => BigInt(num));
         let B_y = otpProofData.proof.pi_b[1].map((num: string) => BigInt(num));
+        let actions = beginCell().storeUint(0, 256).endCell();
         const payload = beginCell()
             .storeUint(Opcodes.disable_emergency, 32)
             .storeUint(otpProofData.timeMS, 64)
+            .storeUint(BigInt('0x' + actions.hash().toString('hex')), 256)
             .storeRef(
                 beginCell()
                     .storeRef(
@@ -169,16 +175,18 @@ export class Zk2FA implements Contract {
                         )
                     )
             )
+            .storeRef(actions)
             .endCell();
         return payload;
     }
 
-    static set_code_with_otp_body(otpProofData: { timeMS: number; proof: any }, code:Cell) {
+    static set_code_with_otp_body(otpProofData: { timeMS: number; proof: any }, code: Cell) {
         let B_x = otpProofData.proof.pi_b[0].map((num: string) => BigInt(num));
         let B_y = otpProofData.proof.pi_b[1].map((num: string) => BigInt(num));
         const payload = beginCell()
             .storeUint(Opcodes.set_code, 32)
             .storeUint(otpProofData.timeMS, 64)
+            .storeUint(BigInt('0x' + code.hash().toString('hex')), 256)
             .storeRef(
                 beginCell()
                     .storeRef(
@@ -229,12 +237,7 @@ export class Zk2FA implements Contract {
         });
     }
 
-    async sendSetCode(
-        provider: ContractProvider,
-        via: Sender,
-        value: bigint,
-        payload: Cell
-    ) {
+    async sendSetCode(provider: ContractProvider, via: Sender, value: bigint, payload: Cell) {
         return await provider.internal(via, {
             value,
             sendMode: SendMode.PAY_GAS_SEPARATELY,

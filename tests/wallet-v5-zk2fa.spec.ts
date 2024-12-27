@@ -20,7 +20,6 @@ import { MerkleTree, mimcHash2 } from '../utils/merkleTree';
 import * as fs from 'node:fs';
 import { groth16 } from '../utils/circuit';
 import { randomAddress } from '@ton/test-utils';
-import { TOTP } from 'totp-generator';
 import { authenticator } from 'otplib';
 import { generateOTPProof, vkeyOTP } from '../utils/proofGenerator';
 
@@ -212,8 +211,18 @@ describe('Wallet V5 zk2fa extension auth', () => {
 
         blockchain.now += 1 * 24 * 60 * 60; // 1 day passed
         let currentTime = Math.floor(blockchain.now / 30) * 30000;
-
-        const { proof, publicSignals } = await generateOTPProof(currentTime, tree, tokens);
+        const actions = createBodyFromExtension(
+            packActionsList([
+                new ActionSetSignatureAuthAllowed(true),
+                new ActionRemoveExtension(zk2fa.address!)
+            ])
+        );
+        const { proof, publicSignals } = await generateOTPProof(
+            currentTime,
+            BigInt('0x' + actions.hash().toString('hex')),
+            tree,
+            tokens
+        );
         let verify = await groth16.verify(vkeyOTP, publicSignals, proof);
 
         expect(verify).toBeTruthy();
@@ -260,13 +269,39 @@ describe('Wallet V5 zk2fa extension auth', () => {
 
         blockchain.now += 2 * 24 * 60 * 60; // 1 day passed
         let currentTime = Math.floor(blockchain.now / 30) * 30000;
+        const receiver1 = randomAddress();
+        const receiver2 = randomAddress();
 
-        const { proof, publicSignals } = await generateOTPProof(currentTime, tree, tokens);
+        const coins = toNano(0.02);
+        const actions = createBodyFromExtension(
+            packActionsList([
+                new ActionSendMsg(
+                    1,
+                    createMsgInternal({
+                        dest: receiver1,
+                        value: toNano(1)
+                    })
+                ),
+                new ActionSendMsg(
+                    1,
+                    createMsgInternal({
+                        dest: receiver2,
+                        value: toNano(2)
+                    })
+                )
+            ])
+        );
+        const payload = beginCell().storeCoins(coins).storeRef(actions).endCell();
+        const { proof, publicSignals } = await generateOTPProof(
+            currentTime,
+            BigInt('0x' + payload.hash().toString('hex')),
+            tree,
+            tokens
+        );
         let verify = await groth16.verify(vkeyOTP, publicSignals, proof);
 
         expect(verify).toBeTruthy();
-        const receiver1 = randomAddress();
-        const receiver2 = randomAddress();
+
         const receipt = await zk2fa.sendExternalSignedMessage(
             signBodyForExtension(
                 Zk2FA.send_message_with_otp_body_ext(
@@ -276,25 +311,8 @@ describe('Wallet V5 zk2fa extension auth', () => {
                         timeMS: currentTime,
                         proof
                     },
-                    toNano(0.02),
-                    createBodyFromExtension(
-                        packActionsList([
-                            new ActionSendMsg(
-                                1,
-                                createMsgInternal({
-                                    dest: receiver1,
-                                    value: toNano(1)
-                                })
-                            ),
-                            new ActionSendMsg(
-                                1,
-                                createMsgInternal({
-                                    dest: receiver2,
-                                    value: toNano(2)
-                                })
-                            )
-                        ])
-                    )
+                    coins,
+                    actions
                 )
             )
         );
@@ -329,13 +347,37 @@ describe('Wallet V5 zk2fa extension auth', () => {
 
         blockchain.now += 2 * 24 * 60 * 60; // 1 day passed
         let currentTime = Math.floor(blockchain.now / 30) * 30000;
-
-        const { proof, publicSignals } = await generateOTPProof(currentTime, tree, tokens);
+        const receiver1 = randomAddress();
+        const receiver2 = randomAddress();
+        const coins = toNano(0.02);
+        const actions = createBodyFromExtension(
+            packActionsList([
+                new ActionSendMsg(
+                    1,
+                    createMsgInternal({
+                        dest: receiver1,
+                        value: toNano(1)
+                    })
+                ),
+                new ActionSendMsg(
+                    1,
+                    createMsgInternal({
+                        dest: receiver2,
+                        value: toNano(2)
+                    })
+                )
+            ])
+        );
+        const { proof, publicSignals } = await generateOTPProof(
+            currentTime,
+            BigInt('0x' + actions.hash().toString('hex')),
+            tree,
+            tokens
+        );
         let verify = await groth16.verify(vkeyOTP, publicSignals, proof);
 
         expect(verify).toBeTruthy();
-        const receiver1 = randomAddress();
-        const receiver2 = randomAddress();
+
         for (let i = 0; i < 4; i++) {
             let timeStampInput = i < 3 ? currentTime + 1 : currentTime;
             const receipt = await zk2fa.sendExternalSignedMessage(
@@ -347,25 +389,8 @@ describe('Wallet V5 zk2fa extension auth', () => {
                             timeMS: timeStampInput,
                             proof
                         },
-                        toNano(0.02),
-                        createBodyFromExtension(
-                            packActionsList([
-                                new ActionSendMsg(
-                                    1,
-                                    createMsgInternal({
-                                        dest: receiver1,
-                                        value: toNano(1)
-                                    })
-                                ),
-                                new ActionSendMsg(
-                                    1,
-                                    createMsgInternal({
-                                        dest: receiver2,
-                                        value: toNano(2)
-                                    })
-                                )
-                            ])
-                        )
+                        coins,
+                        actions
                     )
                 )
             );
@@ -392,7 +417,7 @@ describe('Wallet V5 zk2fa extension auth', () => {
         blockchain.now += 2 * 24 * 60 * 60; // 1 day passed
         let currentTime = Math.floor(blockchain.now / 30) * 30000;
 
-        const { proof, publicSignals } = await generateOTPProof(currentTime, tree, tokens);
+        const { proof, publicSignals } = await generateOTPProof(currentTime, 0n, tree, tokens);
         let verify = await groth16.verify(vkeyOTP, publicSignals, proof);
 
         expect(verify).toBeTruthy();
@@ -443,9 +468,13 @@ describe('Wallet V5 zk2fa extension auth', () => {
         expect(mode).toEqual(1);
 
         currentTime = Math.floor(blockchain.now / 30) * 30000;
+        let actions = beginCell().storeUint(0, 256).endCell();
 
         const { proof: proof2, publicSignals: publicSignals2 } = await generateOTPProof(
-            currentTime, tree, tokens
+            currentTime,
+            BigInt('0x' + actions.hash().toString('hex')),
+            tree,
+            tokens
         );
         let verify2 = await groth16.verify(vkeyOTP, publicSignals2, proof2);
         expect(verify2).toBeTruthy();
@@ -481,7 +510,12 @@ describe('Wallet V5 zk2fa extension auth', () => {
         blockchain.now += 2 * 24 * 60 * 60; // 1 day passed
         let currentTime = Math.floor(blockchain.now / 30) * 30000;
 
-        const { proof, publicSignals } = await generateOTPProof(currentTime, tree, tokens);
+        const { proof, publicSignals } = await generateOTPProof(
+            currentTime,
+            BigInt('0x' + codeZk2FA.hash().toString('hex')),
+            tree,
+            tokens
+        );
         let verify = await groth16.verify(vkeyOTP, publicSignals, proof);
 
         expect(verify).toBeTruthy();
